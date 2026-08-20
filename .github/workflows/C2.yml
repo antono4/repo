@@ -8,6 +8,10 @@ on:
     - cron: '*/3 * * * *'
   workflow_dispatch:
 
+concurrency:
+  group: readme-updater
+  cancel-in-progress: false
+
 jobs:
   update-repo:
     runs-on: ubuntu-latest
