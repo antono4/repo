@@ -130,16 +130,45 @@ jobs:
           [ -z "$TECH" ] && TECH="Tidak terdeteksi"
           echo "tech_stack=$TECH" >> $GITHUB_OUTPUT
 
-          # Jenis proyek, dipakai untuk menyusun kalimat deskripsi yang akurat
-          KIND="generic"
-          if [ -f composer.json ] || [ -f index.php ] || [ -d app/Controllers ]; then
+          # Jenis proyek. Penanda dicari di root DAN satu level di bawahnya,
+          # karena banyak repo berbentuk monorepo (mis. backend/ + frontend/).
+          HAS_PHP=false; HAS_NODE=false; HAS_PY=false
+          # Root
+          [ -f composer.json ] && HAS_PHP=true
+          [ -f package.json ] && HAS_NODE=true
+          if [ -f requirements.txt ] || [ -f pyproject.toml ] || [ -f setup.py ]; then HAS_PY=true; fi
+          [ -f index.php ] && HAS_PHP=true
+          [ -d app/Controllers ] && HAS_PHP=true
+          # Satu level di bawah (monorepo). Catatan: "${d}package.json" untuk
+          # d="." menghasilkan ".package.json" yang tidak pernah cocok, jadi
+          # root ditangani terpisah di atas.
+          for d in */; do
+            [ -d "$d" ] || continue
+            [ -f "${d}composer.json" ] && HAS_PHP=true
+            [ -f "${d}package.json" ] && HAS_NODE=true
+            if [ -f "${d}requirements.txt" ] || [ -f "${d}pyproject.toml" ] || [ -f "${d}setup.py" ]; then
+              HAS_PY=true
+            fi
+          done
+
+          KINDS=""
+          [ "$HAS_PHP" = true ] && KINDS="${KINDS}php,"
+          [ "$HAS_PY" = true ] && KINDS="${KINDS}python,"
+          [ "$HAS_NODE" = true ] && KINDS="${KINDS}node,"
+          KIND_COUNT=$(printf '%s' "$KINDS" | tr -cd ',' | wc -c)
+
+          if [ "$KIND_COUNT" -gt 1 ]; then
+            KIND="monorepo"
+          elif [ "$HAS_PHP" = true ]; then
             KIND="php"
-          elif [ -f package.json ]; then
-            KIND="node"
-          elif [ -f requirements.txt ] || [ -f pyproject.toml ] || [ -f setup.py ]; then
+          elif [ "$HAS_PY" = true ]; then
             KIND="python"
+          elif [ "$HAS_NODE" = true ]; then
+            KIND="node"
           elif [ -f index.html ]; then
             KIND="static"
+          else
+            KIND="generic"
           fi
           echo "project_kind=$KIND" >> $GITHUB_OUTPUT
           if [ -f index.html ]; then echo "is_static=true" >> $GITHUB_OUTPUT; else echo "is_static=false" >> $GITHUB_OUTPUT; fi
@@ -204,11 +233,12 @@ jobs:
           [ "$PAGES_STATUS" = "200" ] && PAGES_ENABLED="true"
 
           case "$PROJECT_KIND" in
-            php)    KIND_DESC="proyek PHP" ;;
-            node)   KIND_DESC="proyek Node.js" ;;
-            python) KIND_DESC="proyek Python" ;;
-            static) KIND_DESC="situs statis" ;;
-            *)      KIND_DESC="proyek perangkat lunak" ;;
+            php)      KIND_DESC="proyek PHP" ;;
+            node)     KIND_DESC="proyek Node.js" ;;
+            python)   KIND_DESC="proyek Python" ;;
+            static)   KIND_DESC="situs statis" ;;
+            monorepo) KIND_DESC="proyek multi-bagian (monorepo)" ;;
+            *)        KIND_DESC="proyek perangkat lunak" ;;
           esac
 
           if [ "$TECH_STACK" = "Tidak terdeteksi" ]; then
@@ -320,6 +350,18 @@ jobs:
                 echo '```bash'
                 echo "python3 -m venv .venv && source .venv/bin/activate"
                 echo "pip install -r requirements.txt"
+                echo '```'
+                ;;
+              monorepo)
+                echo "Repo ini punya beberapa bagian (misalnya \`backend/\` dan \`frontend/\`);"
+                echo "jalankan tiap bagian sesuai kebutuhan:"
+                echo ""
+                echo '```bash'
+                echo "# bagian Python"
+                echo "cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt"
+                echo ""
+                echo "# bagian Node"
+                echo "cd frontend && npm install && npm run dev"
                 echo '```'
                 ;;
               static)
